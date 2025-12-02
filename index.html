@@ -3,24 +3,165 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drowsiness Detector</title>
+    <title>Modern Drowsiness Detector</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; text-align: center; background: #222; color: white; }
-        video { width: 100%; max-width: 600px; transform: scaleX(-1); border: 2px solid #555; }
-        #status { font-size: 24px; margin: 10px; font-weight: bold; }
-        .safe { color: #0f0; }
-        .danger { color: #f00; background: yellow; padding: 10px; }
-        button { padding: 10px 20px; font-size: 18px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; }
+        /* --- MODERN CSS VARIABLES & RESET --- */
+        :root {
+            --bg-app: #0a0a0a;
+            --bg-card: #1a1a1a;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --primary-color: #3b82f6; /* Modern Blue */
+            --success-color: #10b981; /* Modern Green */
+            --danger-color: #ef4444;  /* Modern Red */
+            --card-radius: 16px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-app);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        /* Main App Container */
+        .app-container {
+            background-color: var(--bg-card);
+            width: 100%;
+            max-width: 700px;
+            padding: 30px;
+            border-radius: 24px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            text-align: center;
+        }
+
+        h1 {
+            margin-top: 0;
+            font-weight: 700;
+            font-size: 1.8rem;
+            letter-spacing: -0.02em;
+            margin-bottom: 25px;
+        }
+
+        /* Video Feed Styling */
+        .video-wrapper {
+            width: 100%;
+            border-radius: var(--card-radius);
+            overflow: hidden;
+            /* Subtle border and shadow for depth */
+            border: 3px solid #333;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            background: #000;
+            margin-bottom: 25px;
+        }
+
+        video {
+            width: 100%;
+            display: block;
+            /* KEPT CONSTRAINT: The crucial flip transformation */
+            transform: scaleX(-1); 
+        }
+
+        /* Status Indicator Card */
+        #status {
+            padding: 20px;
+            border-radius: var(--card-radius);
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 25px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        /* Modern Status Colors & Icons */
+        .safe {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: var(--success-color);
+            border: 2px solid var(--success-color);
+        }
+        .safe::before { content: "🟢"; font-size: 1.4rem; }
+
+        .danger {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: var(--danger-color);
+            border: 2px solid var(--danger-color);
+            /* Add a subtle pulse animation for danger */
+            animation: pulse 1.5s infinite;
+        }
+        .danger::before { content: "⚠️"; font-size: 1.4rem; }
+
+        /* Controls Section */
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* Modern Button Styling */
+        button {
+            padding: 14px 28px;
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #startBtn {
+            background-color: var(--primary-color);
+            color: white;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+        #startBtn:hover { transform: translateY(-2px); background-color: #2563eb; }
+
+        /* We'll hide the connect button initially as it's for USB serial, not wifi */
+        #connectArduinoBtn {
+            background-color: #374151;
+            color: var(--text-secondary);
+             display: none; /* Hiding this since we are using Wi-Fi now */
+        }
+        
+        /* Keyframe animation for the danger state */
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <h1>😴 Drowsiness Detector</h1>
-    <div id="status" class="safe">Status: Waiting for Camera...</div>
-    <video id="webcam" autoplay playsinline></video>
-    <br>
-    <button id="startBtn">Enable Camera & Start</button>
+    <div class="app-container">
+        <h1>😴 Driver Drowsiness AI</h1>
+        
+        <div class="video-wrapper">
+            <video id="webcam" autoplay playsinline></video>
+        </div>
+
+        <div id="status" class="safe">Waiting for Camera...</div>
+        
+        <div class="controls">
+            <button id="startBtn">▶ Start Monitor</button>
+            <button id="connectArduinoBtn">🔌 Connect USB</button> 
+        </div>
+    </div>
 
     <script type="module">
         import { FaceLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
@@ -31,8 +172,23 @@
         let faceLandmarker;
         let lastVideoTime = -1;
         let alarmCounter = 0;
-        const EAR_THRESHOLD = 0.22;
-        const FRAMES_TO_ALARM = 50; // Approx 1-2 seconds depending on FPS
+
+        // --- YOUR TUNED PARAMETERS (KEPT EXACTLY THE SAME) ---
+        const EAR_THRESHOLD = 0.22;   
+        const FRAMES_TO_ALARM = 50;   
+
+        // --- WI-FI CONFIGURATION ---
+        const ESP_IP = "192.168.4.1"; 
+
+        // --- HTTP SIGNAL FUNCTION ---
+        async function sendSignal(endpoint) {
+            const url = `http://${ESP_IP}/${endpoint}`;
+            try {
+                await fetch(url, { method: 'GET', mode: 'no-cors' });
+            } catch (err) {
+                 console.log("ESP connection issue (expected if not in car)");
+            }
+        }
 
         // 1. Setup MediaPipe Landmarker
         async function createLandmarker() {
@@ -48,7 +204,7 @@
                 runningMode: "VIDEO",
                 numFaces: 1
             });
-            statusDiv.innerText = "System Ready. Click Start.";
+            statusDiv.innerText = "System Ready. Tap Start.";
         }
 
         createLandmarker();
@@ -58,13 +214,17 @@
             if (!faceLandmarker) { alert("Please wait for model to load"); return; }
             
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                // Ask for a specific resolution ideal for phones
+                const constraints = { video: { width: 640, height: 480, facingMode: 'user' } };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
                 video.addEventListener("loadeddata", predictWebcam);
                 startBtn.style.display = "none";
-                statusDiv.innerText = "Status: Monitoring...";
+                statusDiv.innerText = "Initializing AI...";
             } catch (err) {
-                alert("Camera access denied or not supported.");
+                alert("Camera access denied. Please check site permissions.");
+                statusDiv.innerText = "Camera Error 🚫";
+                statusDiv.className = "danger";
             }
         });
 
@@ -74,13 +234,11 @@
             if (lastVideoTime !== video.currentTime) {
                 lastVideoTime = video.currentTime;
                 
-                // Detect faces
                 const results = faceLandmarker.detectForVideo(video, startTimeMs);
 
                 if (results.faceLandmarks.length > 0) {
                     const landmarks = results.faceLandmarks[0];
                     
-                    // Calculate EAR for both eyes
                     // Left Eye Indices: 362, 385, 387, 263, 373, 380
                     // Right Eye Indices: 33, 160, 158, 133, 153, 144
                     const leftEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380]);
@@ -92,14 +250,16 @@
                     if (avgEAR < EAR_THRESHOLD) {
                         alarmCounter++;
                         if (alarmCounter > FRAMES_TO_ALARM) {
-                            statusDiv.innerText = "⚠️ WAKE UP! ⚠️";
+                            statusDiv.innerText = "WAKE UP! Drowsiness Detected";
                             statusDiv.className = "danger";
-                            // Optional: Play sound here
+                            sendSignal("alarm_on"); 
                         }
                     } else {
                         alarmCounter = 0;
-                        statusDiv.innerText = "Status: Awake (EAR: " + avgEAR.toFixed(2) + ")";
+                        // Simplified status text for cleaner UI
+                        statusDiv.innerText = "Status: Active & Awake";
                         statusDiv.className = "safe";
+                        sendSignal("alarm_off");
                     }
                 }
             }
@@ -108,14 +268,11 @@
 
         // Helper Math Function
         function calculateEAR(landmarks, indices) {
-            // Euclidean distance helper
             const dist = (i1, i2) => {
                 const dx = landmarks[i1].x - landmarks[i2].x;
                 const dy = landmarks[i1].y - landmarks[i2].y;
                 return Math.sqrt(dx*dx + dy*dy);
             };
-            
-            // EAR Formula: (Vertical1 + Vertical2) / (2 * Horizontal)
             const A = dist(indices[1], indices[5]);
             const B = dist(indices[2], indices[4]);
             const C = dist(indices[0], indices[3]);
