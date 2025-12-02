@@ -164,120 +164,166 @@
     </div>
 
     <script type="module">
-        import { FaceLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+    import { FaceLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
-        const video = document.getElementById("webcam");
-        const statusDiv = document.getElementById("status");
-        const startBtn = document.getElementById("startBtn");
-        let faceLandmarker;
-        let lastVideoTime = -1;
-        let alarmCounter = 0;
+    const video = document.getElementById("webcam");
+    const statusDiv = document.getElementById("status");
+    const startBtn = document.getElementById("startBtn");
+    let faceLandmarker;
+    let lastVideoTime = -1;
+    let alarmCounter = 0;
+    let headDownCounter = 0; // New counter for head position
 
-        // --- YOUR TUNED PARAMETERS (KEPT EXACTLY THE SAME) ---
-        const EAR_THRESHOLD = 0.18;   
-        const FRAMES_TO_ALARM = 50;   
+    // --- TUNED PARAMETERS ---
+    const EAR_THRESHOLD = 0.18;     // Eyes closed threshold
+    const EYE_FRAMES = 40;          // Speed of eye reaction
 
-        // --- WI-FI CONFIGURATION ---
-        const ESP_IP = "192.168.4.1"; 
+    // NEW: Head Pitch Parameters (You may need to tweak this number based on camera angle)
+    const PITCH_THRESHOLD = 0.65;   // Higher = requires deeper nod to trigger
+    const HEAD_FRAMES = 30;         // How long head must be down to trigger
 
-        // --- HTTP SIGNAL FUNCTION ---
-        async function sendSignal(endpoint) {
-            const url = `http://${ESP_IP}/${endpoint}`;
-            try {
-                await fetch(url, { method: 'GET', mode: 'no-cors' });
-            } catch (err) {
-                 console.log("ESP connection issue (expected if not in car)");
-            }
+    // --- WI-FI CONFIGURATION ---
+    const ESP_IP = "192.168.4.1"; 
+
+    async function sendSignal(endpoint) {
+        const url = `http://${ESP_IP}/${endpoint}`;
+        try {
+            await fetch(url, { method: 'GET', mode: 'no-cors' });
+        } catch (err) {
+            // console.log("ESP connection issue");
         }
+    }
 
-        // 1. Setup MediaPipe Landmarker
-        async function createLandmarker() {
-            const filesetResolver = await FilesetResolver.forVisionTasks(
-                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-            );
-            faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-                baseOptions: {
-                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-                    delegate: "GPU"
-                },
-                outputFaceBlendshapes: true,
-                runningMode: "VIDEO",
-                numFaces: 1
-            });
-            statusDiv.innerText = "System Ready. Tap Start.";
-        }
-
-        createLandmarker();
-
-        // 2. Enable Webcam
-        startBtn.addEventListener("click", async () => {
-            if (!faceLandmarker) { alert("Please wait for model to load"); return; }
-            
-            try {
-                // Ask for a specific resolution ideal for phones
-                const constraints = { video: { width: 640, height: 480, facingMode: 'user' } };
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
-                video.addEventListener("loadeddata", predictWebcam);
-                startBtn.style.display = "none";
-                statusDiv.innerText = "Initializing AI...";
-            } catch (err) {
-                alert("Camera access denied. Please check site permissions.");
-                statusDiv.innerText = "Camera Error 🚫";
-                statusDiv.className = "danger";
-            }
+    // 1. Setup MediaPipe
+    async function createLandmarker() {
+        const filesetResolver = await FilesetResolver.forVisionTasks(
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+        );
+        faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+            baseOptions: {
+                modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+                delegate: "GPU"
+            },
+            outputFaceBlendshapes: true,
+            runningMode: "VIDEO",
+            numFaces: 1
         });
+        statusDiv.innerText = "System Ready. Tap Start.";
+    }
 
-        // 3. Main Detection Loop
-        async function predictWebcam() {
-            let startTimeMs = performance.now();
-            if (lastVideoTime !== video.currentTime) {
-                lastVideoTime = video.currentTime;
+    createLandmarker();
+
+    // 2. Enable Webcam
+    startBtn.addEventListener("click", async () => {
+        if (!faceLandmarker) { alert("Please wait for model to load"); return; }
+        
+        try {
+            const constraints = { video: { width: 640, height: 480, facingMode: 'user' } };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+            video.addEventListener("loadeddata", predictWebcam);
+            startBtn.style.display = "none";
+            statusDiv.innerText = "Initializing AI...";
+        } catch (err) {
+            alert("Camera access denied.");
+            statusDiv.innerText = "Camera Error 🚫";
+            statusDiv.className = "danger";
+        }
+    });
+
+    // 3. Main Detection Loop
+    async function predictWebcam() {
+        let startTimeMs = performance.now();
+        if (lastVideoTime !== video.currentTime) {
+            lastVideoTime = video.currentTime;
+            
+            const results = faceLandmarker.detectForVideo(video, startTimeMs);
+
+            if (results.faceLandmarks.length > 0) {
+                const landmarks = results.faceLandmarks[0];
                 
-                const results = faceLandmarker.detectForVideo(video, startTimeMs);
+                // --- 1. EYE TRACKING LOGIC ---
+                // Left Eye Indices: 362, 385, 387, 263, 373, 380
+                // Right Eye Indices: 33, 160, 158, 133, 153, 144
+                const leftEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380]);
+                const rightEAR = calculateEAR(landmarks, [33, 160, 158, 133, 153, 144]);
+                const avgEAR = (leftEAR + rightEAR) / 2;
 
-                if (results.faceLandmarks.length > 0) {
-                    const landmarks = results.faceLandmarks[0];
-                    
-                    // Left Eye Indices: 362, 385, 387, 263, 373, 380
-                    // Right Eye Indices: 33, 160, 158, 133, 153, 144
-                    const leftEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380]);
-                    const rightEAR = calculateEAR(landmarks, [33, 160, 158, 133, 153, 144]);
-                    
-                    const avgEAR = (leftEAR + rightEAR) / 2;
+                // --- 2. HEAD POSE LOGIC (Nose vs Eyes) ---
+                // Index 1: Nose Tip
+                // Index 33: Left Eye Outer Corner
+                // Index 263: Right Eye Outer Corner
+                const nose = landmarks[1];
+                const leftEyeOuter = landmarks[33];
+                const rightEyeOuter = landmarks[263];
 
-                    // Check Drowsiness
-                    if (avgEAR < EAR_THRESHOLD) {
-                        alarmCounter++;
-                        if (alarmCounter > FRAMES_TO_ALARM) {
-                            statusDiv.innerText = "WAKE UP! Drowsiness Detected";
-                            statusDiv.className = "danger";
-                            sendSignal("alarm_on"); 
-                        }
-                    } else {
-                        alarmCounter = 0;
-                        // Simplified status text for cleaner UI
-                        statusDiv.innerText = "Status: Active & Awake";
-                        statusDiv.className = "safe";
-                        sendSignal("alarm_off");
-                    }
+                // Calculate Face Width (Horizontal distance between eyes)
+                const faceWidth = Math.sqrt(
+                    Math.pow(rightEyeOuter.x - leftEyeOuter.x, 2) + 
+                    Math.pow(rightEyeOuter.y - leftEyeOuter.y, 2)
+                );
+
+                // Calculate Mid-Eye Y coordinate
+                const midEyeY = (leftEyeOuter.y + rightEyeOuter.y) / 2;
+
+                // Calculate Pitch Ratio: (Nose Y - MidEye Y) / Face Width
+                // Note: In computer vision, Y increases as you go DOWN the screen.
+                // So (Nose - Eyes) is positive. Larger number = Nose is lower.
+                const pitchRatio = (nose.y - midEyeY) / faceWidth;
+
+                // --- 3. DECISION MATRIX ---
+                let isSleeping = false;
+                let statusText = "";
+
+                // Check Eyes
+                if (avgEAR < EAR_THRESHOLD) {
+                    alarmCounter++;
+                } else {
+                    alarmCounter = Math.max(0, alarmCounter - 1); // Decay slowly
+                }
+
+                // Check Head
+                if (pitchRatio > PITCH_THRESHOLD) {
+                    headDownCounter++;
+                } else {
+                    headDownCounter = Math.max(0, headDownCounter - 1);
+                }
+
+                // Trigger Logic
+                if (alarmCounter > EYE_FRAMES) {
+                    isSleeping = true;
+                    statusText = "WAKE UP! (Eyes Closed)";
+                } else if (headDownCounter > HEAD_FRAMES) {
+                    isSleeping = true;
+                    statusText = "HEAD UP! (Distracted)";
+                }
+
+                // Update UI & Hardware
+                if (isSleeping) {
+                    statusDiv.innerText = statusText;
+                    statusDiv.className = "danger";
+                    sendSignal("alarm_on"); 
+                } else {
+                    // Show debug stats so you can tune parameters
+                    statusDiv.innerText = `Active | EAR: ${avgEAR.toFixed(2)} | Pitch: ${pitchRatio.toFixed(2)}`;
+                    statusDiv.className = "safe";
+                    sendSignal("alarm_off");
                 }
             }
-            window.requestAnimationFrame(predictWebcam);
         }
+        window.requestAnimationFrame(predictWebcam);
+    }
 
-        // Helper Math Function
-        function calculateEAR(landmarks, indices) {
-            const dist = (i1, i2) => {
-                const dx = landmarks[i1].x - landmarks[i2].x;
-                const dy = landmarks[i1].y - landmarks[i2].y;
-                return Math.sqrt(dx*dx + dy*dy);
-            };
-            const A = dist(indices[1], indices[5]);
-            const B = dist(indices[2], indices[4]);
-            const C = dist(indices[0], indices[3]);
-            return (A + B) / (2.0 * C);
-        }
-    </script>
-</body>
-</html>
+    // Helper Math Function
+    function calculateEAR(landmarks, indices) {
+        const dist = (i1, i2) => {
+            const dx = landmarks[i1].x - landmarks[i2].x;
+            const dy = landmarks[i1].y - landmarks[i2].y;
+            return Math.sqrt(dx*dx + dy*dy);
+        };
+        const A = dist(indices[1], indices[5]);
+        const B = dist(indices[2], indices[4]);
+        const C = dist(indices[0], indices[3]);
+        return (A + B) / (2.0 * C);
+    }
+</script>
