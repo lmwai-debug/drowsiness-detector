@@ -31,8 +31,8 @@
         let faceLandmarker;
         let lastVideoTime = -1;
         let alarmCounter = 0;
-        const EAR_THRESHOLD = 0.25;
-        const FRAMES_TO_ALARM = 20; // Approx 1-2 seconds depending on FPS
+        const EAR_THRESHOLD = 0.22;
+        const FRAMES_TO_ALARM = 50; // Approx 1-2 seconds depending on FPS
 
         // 1. Setup MediaPipe Landmarker
         async function createLandmarker() {
