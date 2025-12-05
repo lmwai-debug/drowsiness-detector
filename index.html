@@ -12,9 +12,9 @@
             --bg-card: #1a1a1a;
             --text-primary: #ffffff;
             --text-secondary: #a0a0a0;
-            --primary-color: #3b82f6; /* Modern Blue */
-            --success-color: #10b981; /* Modern Green */
-            --danger-color: #ef4444;  /* Modern Red */
+            --primary-color: #3b82f6;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
             --card-radius: 16px;
         }
 
@@ -31,7 +31,6 @@
             box-sizing: border-box;
         }
 
-        /* Main App Container */
         .app-container {
             background-color: var(--bg-card);
             width: 100%;
@@ -46,16 +45,13 @@
             margin-top: 0;
             font-weight: 700;
             font-size: 1.8rem;
-            letter-spacing: -0.02em;
             margin-bottom: 25px;
         }
 
-        /* Video Feed Styling */
         .video-wrapper {
             width: 100%;
             border-radius: var(--card-radius);
             overflow: hidden;
-            /* Subtle border and shadow for depth */
             border: 3px solid #333;
             box-shadow: 0 8px 24px rgba(0,0,0,0.2);
             background: #000;
@@ -65,11 +61,9 @@
         video {
             width: 100%;
             display: block;
-            /* KEPT CONSTRAINT: The crucial flip transformation */
             transform: scaleX(-1); 
         }
 
-        /* Status Indicator Card */
         #status {
             padding: 20px;
             border-radius: var(--card-radius);
@@ -83,7 +77,6 @@
             gap: 10px;
         }
 
-        /* Modern Status Colors & Icons */
         .safe {
             background-color: rgba(16, 185, 129, 0.15);
             color: var(--success-color);
@@ -95,12 +88,10 @@
             background-color: rgba(239, 68, 68, 0.15);
             color: var(--danger-color);
             border: 2px solid var(--danger-color);
-            /* Add a subtle pulse animation for danger */
             animation: pulse 1.5s infinite;
         }
         .danger::before { content: "⚠️"; font-size: 1.4rem; }
 
-        /* Controls Section */
         .controls {
             display: flex;
             gap: 15px;
@@ -108,7 +99,6 @@
             flex-wrap: wrap;
         }
 
-        /* Modern Button Styling */
         button {
             padding: 14px 28px;
             font-family: 'Inter', sans-serif;
@@ -129,15 +119,7 @@
             box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
         }
         #startBtn:hover { transform: translateY(-2px); background-color: #2563eb; }
-
-        /* We'll hide the connect button initially as it's for USB serial, not wifi */
-        #connectArduinoBtn {
-            background-color: #374151;
-            color: var(--text-secondary);
-             display: none; /* Hiding this since we are using Wi-Fi now */
-        }
-        
-        /* Keyframe animation for the danger state */
+       
         @keyframes pulse {
             0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
             70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
@@ -158,8 +140,7 @@
         <div id="status" class="safe">Waiting for Camera...</div>
         
         <div class="controls">
-            <button id="startBtn">▶ Start Monitor</button>
-            <button id="connectArduinoBtn">🔌 Connect USB</button> 
+            <button id="startBtn">▶ Start Monitor (Enable Audio)</button>
         </div>
     </div>
 
@@ -172,26 +153,71 @@
     let faceLandmarker;
     let lastVideoTime = -1;
     let alarmCounter = 0;
-    let headDownCounter = 0; // New counter for head position
+    let headDownCounter = 0;
+
+    // --- AUDIO SETUP (Base64 Beep Sound) ---
+    // This is a short synth beep encoded in Base64 so you don't need an external file.
+    const beepBase64 = "data:audio/wav;base64,UklGRl9vT1BXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"; 
+    // Note: The string above is cut short for brevity. I will use a generated Oscillator instead which is cleaner code.
+    
+    let audioCtx;
+    let oscillator;
+    let isBuzzing = false;
+
+    function playAlarm() {
+        if (isBuzzing) return; // Already playing
+        
+        // Create audio context if it doesn't exist
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        // Create oscillator (Sound generator)
+        oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = 'square'; // Harsh sound
+        oscillator.frequency.setValueAtTime(650, audioCtx.currentTime); // 650Hz tone
+        
+        // Connect parts
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        // Beeping pattern
+        const now = audioCtx.currentTime;
+        gainNode.gain.setValueAtTime(0.5, now);
+        
+        oscillator.start();
+        isBuzzing = true;
+    }
+
+    function stopAlarm() {
+        if (!isBuzzing) return;
+        if (oscillator) {
+            try {
+                oscillator.stop();
+                oscillator.disconnect();
+            } catch(e) {} // Ignore errors if already stopped
+        }
+        isBuzzing = false;
+    }
+
 
     // --- TUNED PARAMETERS ---
     const EAR_THRESHOLD = 0.18;     // Eyes closed threshold
-    const EYE_FRAMES = 40;          // Speed of eye reaction
+    const EYE_FRAMES = 40;          
 
-    // NEW: Head Pitch Parameters (You may need to tweak this number based on camera angle)
-    const PITCH_THRESHOLD = 0.65;   // Higher = requires deeper nod to trigger
-    const HEAD_FRAMES = 30;         // How long head must be down to trigger
+    // UPDATED: Sensitivity increased as requested
+    const PITCH_THRESHOLD = 0.3;    // UPDATED from 0.65 to 0.3
+    const HEAD_FRAMES = 30;         
 
-    // --- WI-FI CONFIGURATION ---
     const ESP_IP = "192.168.4.1"; 
 
     async function sendSignal(endpoint) {
         const url = `http://${ESP_IP}/${endpoint}`;
         try {
             await fetch(url, { method: 'GET', mode: 'no-cors' });
-        } catch (err) {
-            // console.log("ESP connection issue");
-        }
+        } catch (err) {}
     }
 
     // 1. Setup MediaPipe
@@ -213,9 +239,12 @@
 
     createLandmarker();
 
-    // 2. Enable Webcam
+    // 2. Enable Webcam & Audio Context
     startBtn.addEventListener("click", async () => {
         if (!faceLandmarker) { alert("Please wait for model to load"); return; }
+        
+        // Initialize Audio Context on user gesture to allow playback
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
         try {
             const constraints = { video: { width: 640, height: 480, facingMode: 'user' } };
@@ -242,36 +271,25 @@
             if (results.faceLandmarks.length > 0) {
                 const landmarks = results.faceLandmarks[0];
                 
-                // --- 1. EYE TRACKING LOGIC ---
-                // Left Eye Indices: 362, 385, 387, 263, 373, 380
-                // Right Eye Indices: 33, 160, 158, 133, 153, 144
+                // Eye Tracking
                 const leftEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380]);
                 const rightEAR = calculateEAR(landmarks, [33, 160, 158, 133, 153, 144]);
                 const avgEAR = (leftEAR + rightEAR) / 2;
 
-                // --- 2. HEAD POSE LOGIC (Nose vs Eyes) ---
-                // Index 1: Nose Tip
-                // Index 33: Left Eye Outer Corner
-                // Index 263: Right Eye Outer Corner
+                // Head Pose Tracking
                 const nose = landmarks[1];
                 const leftEyeOuter = landmarks[33];
                 const rightEyeOuter = landmarks[263];
-
-                // Calculate Face Width (Horizontal distance between eyes)
+                
                 const faceWidth = Math.sqrt(
                     Math.pow(rightEyeOuter.x - leftEyeOuter.x, 2) + 
                     Math.pow(rightEyeOuter.y - leftEyeOuter.y, 2)
                 );
-
-                // Calculate Mid-Eye Y coordinate
                 const midEyeY = (leftEyeOuter.y + rightEyeOuter.y) / 2;
-
-                // Calculate Pitch Ratio: (Nose Y - MidEye Y) / Face Width
-                // Note: In computer vision, Y increases as you go DOWN the screen.
-                // So (Nose - Eyes) is positive. Larger number = Nose is lower.
+                
                 const pitchRatio = (nose.y - midEyeY) / faceWidth;
 
-                // --- 3. DECISION MATRIX ---
+                // --- LOGIC ---
                 let isSleeping = false;
                 let statusText = "";
 
@@ -279,7 +297,7 @@
                 if (avgEAR < EAR_THRESHOLD) {
                     alarmCounter++;
                 } else {
-                    alarmCounter = Math.max(0, alarmCounter - 1); // Decay slowly
+                    alarmCounter = Math.max(0, alarmCounter - 1);
                 }
 
                 // Check Head
@@ -302,19 +320,19 @@
                 if (isSleeping) {
                     statusDiv.innerText = statusText;
                     statusDiv.className = "danger";
-                    sendSignal("alarm_on"); 
+                    sendSignal("alarm_on");
+                    playAlarm(); // TRIGGER AUDIO
                 } else {
-                    // Show debug stats so you can tune parameters
                     statusDiv.innerText = `Active | EAR: ${avgEAR.toFixed(2)} | Pitch: ${pitchRatio.toFixed(2)}`;
                     statusDiv.className = "safe";
                     sendSignal("alarm_off");
+                    stopAlarm(); // STOP AUDIO
                 }
             }
         }
         window.requestAnimationFrame(predictWebcam);
     }
 
-    // Helper Math Function
     function calculateEAR(landmarks, indices) {
         const dist = (i1, i2) => {
             const dx = landmarks[i1].x - landmarks[i2].x;
@@ -326,4 +344,6 @@
         const C = dist(indices[0], indices[3]);
         return (A + B) / (2.0 * C);
     }
-</script>
+    </script>
+</body>
+</html>
